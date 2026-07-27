@@ -1,4 +1,4 @@
-// clauncher 실행 모듈
+// tiller 실행 모듈
 // selection → claude 플래그 배열 조립(순수), claude 프로세스 spawn(부수효과)을 담당한다.
 
 import { spawn } from 'node:child_process';
@@ -45,7 +45,7 @@ export function run(args, { command = 'claude', logError = console.error } = {})
     child.on('error', (err) => {
       if (err.code === 'ENOENT') {
         logError(
-          `clauncher: '${command}' 명령을 찾을 수 없습니다. claude CLI 설치 여부와 PATH 를 확인하세요.`,
+          `tiller: '${command}' 명령을 찾을 수 없습니다. claude CLI 설치 여부와 PATH 를 확인하세요.`,
         );
         resolve(127);
       } else {

@@ -82,7 +82,7 @@ test('run 은 명령을 찾지 못하면(ENOENT) 안내 후 127 을 반환한다
   const messages = [];
 
   const code = await run([], {
-    command: 'clauncher-no-such-binary-xyz',
+    command: 'tiller-no-such-binary-xyz',
     logError: (m) => messages.push(m),
   });
 
