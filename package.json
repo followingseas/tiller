@@ -1,6 +1,6 @@
 {
   "name": "@followingseas/tiller",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Tiller — a thin launcher that steers the claude CLI with your saved model, permission mode, and effort.",
   "type": "module",
   "bin": {
