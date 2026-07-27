@@ -1,4 +1,4 @@
-// clauncher 설정 모듈
+// tiller 설정 모듈
 // 설정파일 경로 해석, 로드/저장, 기본값 생성, 스키마 검증을 담당한다.
 
 import fs from 'node:fs/promises';
@@ -54,6 +54,16 @@ export function defaultConfig() {
  * env·homedir 를 주입받아 순수하게 동작한다(테스트 용이).
  */
 export function resolveConfigPath({ env = process.env, homedir = os.homedir() } = {}) {
+  const xdg = env.XDG_CONFIG_HOME;
+  const base = xdg ? xdg : path.join(homedir, '.config');
+  return path.join(base, 'tiller', 'config.json');
+}
+
+/**
+ * 개명 전(clauncher) 설정파일의 절대 경로를 해석한다.
+ * tiller 설정이 없을 때 한 번만 읽어 마이그레이션하는 용도다.
+ */
+export function resolveLegacyConfigPath({ env = process.env, homedir = os.homedir() } = {}) {
   const xdg = env.XDG_CONFIG_HOME;
   const base = xdg ? xdg : path.join(homedir, '.config');
   return path.join(base, 'clauncher', 'config.json');
@@ -114,19 +124,50 @@ function serialize(config) {
 }
 
 /**
+ * 레거시(clauncher) 설정을 tiller 경로로 복사한다(개명 마이그레이션).
+ * 성공하면 마이그레이션된 config 를, 레거시가 없거나 손상됐으면 null 을 반환한다.
+ * 레거시 파일은 지우지 않는다 — 구버전 clauncher 를 병행 사용해도 깨지지 않게 한다.
+ * ENOENT 외 읽기 오류는 호출부(load)의 규칙과 같이 그대로 던진다.
+ */
+async function migrateLegacyConfig(configPath, legacyConfigPath) {
+  let raw;
+  try {
+    raw = await fs.readFile(legacyConfigPath, 'utf8');
+  } catch (err) {
+    if (err.code === 'ENOENT') return null;
+    throw err;
+  }
+
+  const parsed = parseConfig(raw);
+  if (parsed === null) return null;
+
+  await fs.mkdir(path.dirname(configPath), { recursive: true });
+  await fs.writeFile(configPath, serialize(parsed));
+  return parsed;
+}
+
+/**
  * 설정파일을 읽어 { config, invalidSteps } 를 반환한다.
- * - 파일 없음: 최초 실행으로 간주 — 기본 config 와 전체 단계 재선택 신호.
+ * - 파일 없음: 레거시(clauncher) 설정이 있으면 tiller 경로로 마이그레이션해 이어 쓰고,
+ *   없으면 최초 실행으로 간주 — 기본 config 와 전체 단계 재선택 신호.
  * - 손상(JSON 파싱 실패): 기본값으로 재생성하고 전체 단계 재선택 신호.
  * - 정상: 파싱한 config 와 validateSelection 결과(누락=전체, 일부 무효=해당 단계).
  * config.options 는 항상 메뉴를 띄울 수 있도록 채워서 반환한다.
  * ENOENT 외 I/O 오류는 호출부가 처리하도록 그대로 던진다.
  */
-export async function load({ configPath = resolveConfigPath() } = {}) {
+export async function load({
+  configPath = resolveConfigPath(),
+  legacyConfigPath = resolveLegacyConfigPath(),
+} = {}) {
   let raw;
   try {
     raw = await fs.readFile(configPath, 'utf8');
   } catch (err) {
     if (err.code === 'ENOENT') {
+      const migrated = await migrateLegacyConfig(configPath, legacyConfigPath);
+      if (migrated) {
+        return { config: migrated, invalidSteps: validateSelection(migrated) };
+      }
       return { config: defaultConfig(), invalidSteps: [...SELECTION_STEPS] };
     }
     throw err;

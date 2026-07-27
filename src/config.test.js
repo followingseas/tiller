@@ -10,15 +10,17 @@ import {
   mergeSelection,
   parseConfig,
   resolveConfigPath,
+  resolveLegacyConfigPath,
   save,
   validateSelection,
 } from './config.js';
 
-// 격리된 임시 디렉토리에 config 경로를 만들어 fn 에 넘기고, 끝나면 정리한다.
+// 격리된 임시 디렉토리에 config 경로(신규·레거시)를 만들어 fn 에 넘기고, 끝나면 정리한다.
+// 레거시 경로를 함께 주입해 테스트가 실제 ~/.config/clauncher 를 읽는 일을 막는다.
 async function withTmpConfig(fn) {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'clauncher-test-'));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'tiller-test-'));
   try {
-    return await fn(path.join(dir, 'config.json'));
+    return await fn(path.join(dir, 'config.json'), path.join(dir, 'legacy-config.json'));
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -74,23 +76,29 @@ test('defaultConfig 는 매번 새로운 객체를 반환한다', () => {
   assert.equal(b.selection.mode, 'default');
 });
 
-test('resolveConfigPath 는 XDG_CONFIG_HOME 가 있으면 그 아래 clauncher/config.json 을 쓴다', () => {
+test('resolveConfigPath 는 XDG_CONFIG_HOME 가 있으면 그 아래 tiller/config.json 을 쓴다', () => {
   const p = resolveConfigPath({
     env: { XDG_CONFIG_HOME: '/custom/xdg' },
     homedir: '/home/u',
   });
 
-  assert.equal(p, path.join('/custom/xdg', 'clauncher', 'config.json'));
+  assert.equal(p, path.join('/custom/xdg', 'tiller', 'config.json'));
 });
 
 test('resolveConfigPath 는 XDG_CONFIG_HOME 가 없으면 ~/.config 로 폴백한다', () => {
   const p = resolveConfigPath({ env: {}, homedir: '/home/u' });
 
-  assert.equal(p, path.join('/home/u', '.config', 'clauncher', 'config.json'));
+  assert.equal(p, path.join('/home/u', '.config', 'tiller', 'config.json'));
 });
 
 test('resolveConfigPath 는 XDG_CONFIG_HOME 가 빈 문자열이면 ~/.config 로 폴백한다', () => {
   const p = resolveConfigPath({ env: { XDG_CONFIG_HOME: '' }, homedir: '/home/u' });
+
+  assert.equal(p, path.join('/home/u', '.config', 'tiller', 'config.json'));
+});
+
+test('resolveLegacyConfigPath 는 개명 전 clauncher/config.json 경로를 돌려준다', () => {
+  const p = resolveLegacyConfigPath({ env: {}, homedir: '/home/u' });
 
   assert.equal(p, path.join('/home/u', '.config', 'clauncher', 'config.json'));
 });
@@ -178,8 +186,8 @@ test('mergeSelection 은 일부 단계만 주면 나머지 단계는 기존 값�
 });
 
 test('load 는 파일이 없으면 기본 config 와 전체 invalidSteps 를 돌려준다', async () => {
-  await withTmpConfig(async (configPath) => {
-    const { config, invalidSteps } = await load({ configPath });
+  await withTmpConfig(async (configPath, legacyConfigPath) => {
+    const { config, invalidSteps } = await load({ configPath, legacyConfigPath });
 
     assert.equal(config.version, 1);
     assert.deepEqual(config.options, defaultConfig().options);
@@ -188,44 +196,44 @@ test('load 는 파일이 없으면 기본 config 와 전체 invalidSteps 를 돌
 });
 
 test('load 는 유효한 selection 이면 invalidSteps 가 비어있다', async () => {
-  await withTmpConfig(async (configPath) => {
+  await withTmpConfig(async (configPath, legacyConfigPath) => {
     await fs.writeFile(configPath, JSON.stringify(defaultConfig()));
 
-    const { invalidSteps } = await load({ configPath });
+    const { invalidSteps } = await load({ configPath, legacyConfigPath });
 
     assert.deepEqual(invalidSteps, []);
   });
 });
 
 test('load 는 selection 일부가 options 에 없으면 그 단계만 invalidSteps 에 담는다', async () => {
-  await withTmpConfig(async (configPath) => {
+  await withTmpConfig(async (configPath, legacyConfigPath) => {
     const c = defaultConfig();
     c.selection.model = 'gpt';
     await fs.writeFile(configPath, JSON.stringify(c));
 
-    const { invalidSteps } = await load({ configPath });
+    const { invalidSteps } = await load({ configPath, legacyConfigPath });
 
     assert.deepEqual(invalidSteps, ['model']);
   });
 });
 
 test('load 는 selection 이 누락되면 전체 invalidSteps 를 돌려준다', async () => {
-  await withTmpConfig(async (configPath) => {
+  await withTmpConfig(async (configPath, legacyConfigPath) => {
     const c = defaultConfig();
     delete c.selection;
     await fs.writeFile(configPath, JSON.stringify(c));
 
-    const { invalidSteps } = await load({ configPath });
+    const { invalidSteps } = await load({ configPath, legacyConfigPath });
 
     assert.deepEqual(invalidSteps, ['mode', 'model', 'effort']);
   });
 });
 
 test('load 는 손상된 JSON 이면 기본값으로 재생성하고 전체 invalidSteps 를 돌려준다', async () => {
-  await withTmpConfig(async (configPath) => {
+  await withTmpConfig(async (configPath, legacyConfigPath) => {
     await fs.writeFile(configPath, '{ broken json');
 
-    const { config, invalidSteps } = await load({ configPath });
+    const { config, invalidSteps } = await load({ configPath, legacyConfigPath });
 
     assert.deepEqual(invalidSteps, ['mode', 'model', 'effort']);
     assert.equal(config.version, 1);
@@ -234,6 +242,53 @@ test('load 는 손상된 JSON 이면 기본값으로 재생성하고 전체 inva
     const reread = parseConfig(await fs.readFile(configPath, 'utf8'));
     assert.deepEqual(reread.options, defaultConfig().options);
     assert.deepEqual(reread.selection, defaultConfig().selection);
+  });
+});
+
+test('load 는 tiller 설정이 없고 레거시(clauncher) 설정이 있으면 마이그레이션해 이어 쓴다', async () => {
+  await withTmpConfig(async (configPath, legacyConfigPath) => {
+    const legacy = defaultConfig();
+    legacy.selection = { mode: 'plan', model: 'sonnet', effort: 'low' };
+    await fs.writeFile(legacyConfigPath, JSON.stringify(legacy));
+
+    const { config, invalidSteps } = await load({ configPath, legacyConfigPath });
+
+    // 레거시 selection 이 그대로 이어지고, 재선택 신호가 없어야 한다
+    assert.deepEqual(config.selection, { mode: 'plan', model: 'sonnet', effort: 'low' });
+    assert.deepEqual(invalidSteps, []);
+
+    // tiller 경로에 복사본이 생성됐는지 확인
+    const migrated = parseConfig(await fs.readFile(configPath, 'utf8'));
+    assert.deepEqual(migrated.selection, legacy.selection);
+
+    // 레거시 파일은 지우지 않는다 (구버전 병행 사용 대비)
+    await fs.access(legacyConfigPath);
+  });
+});
+
+test('load 는 레거시 설정이 손상됐으면 마이그레이션하지 않고 기본값으로 시작한다', async () => {
+  await withTmpConfig(async (configPath, legacyConfigPath) => {
+    await fs.writeFile(legacyConfigPath, '{ broken json');
+
+    const { config, invalidSteps } = await load({ configPath, legacyConfigPath });
+
+    assert.deepEqual(config.options, defaultConfig().options);
+    assert.deepEqual(invalidSteps, ['mode', 'model', 'effort']);
+  });
+});
+
+test('load 는 tiller 설정이 있으면 레거시 설정을 무시한다', async () => {
+  await withTmpConfig(async (configPath, legacyConfigPath) => {
+    const current = defaultConfig(); // default/opus/high
+    await fs.writeFile(configPath, JSON.stringify(current));
+
+    const legacy = defaultConfig();
+    legacy.selection = { mode: 'plan', model: 'sonnet', effort: 'low' };
+    await fs.writeFile(legacyConfigPath, JSON.stringify(legacy));
+
+    const { config } = await load({ configPath, legacyConfigPath });
+
+    assert.deepEqual(config.selection, current.selection);
   });
 });
 
@@ -262,7 +317,7 @@ test('save 는 사용자가 편집한 기존 options 를 보존한다', async ()
 
 test('save 는 디렉토리가 없으면 생성한 뒤 파일을 쓴다', async () => {
   await withTmpConfig(async (configPath) => {
-    const nested = path.join(path.dirname(configPath), 'sub', 'clauncher', 'config.json');
+    const nested = path.join(path.dirname(configPath), 'sub', 'tiller', 'config.json');
 
     await save({ mode: 'auto', model: 'sonnet', effort: 'low' }, { configPath: nested });
 

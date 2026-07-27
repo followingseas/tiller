@@ -1,10 +1,10 @@
 {
-  "name": "clauncher",
-  "version": "0.1.0",
-  "description": "claude CLI 런처 — 저장한 model/mode/effort 를 얹어 claude 를 실행한다",
+  "name": "@followingseas/tiller",
+  "version": "0.2.0",
+  "description": "Tiller — a thin launcher that steers the claude CLI with your saved model, permission mode, and effort.",
   "type": "module",
   "bin": {
-    "clauncher": "bin/cli.js"
+    "tiller": "bin/cli.js"
   },
   "files": [
     "bin",
@@ -20,10 +20,19 @@
   "keywords": [
     "claude",
     "cli",
-    "launcher"
+    "launcher",
+    "tiller"
   ],
   "license": "MIT",
-  "author": "JeongUk Park",
+  "author": "followingseas",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/followingseas/tiller.git"
+  },
+  "bugs": {
+    "url": "https://github.com/followingseas/tiller/issues"
+  },
+  "homepage": "https://github.com/followingseas/tiller#readme",
   "dependencies": {
     "@inquirer/prompts": "^7.0.0"
   }
