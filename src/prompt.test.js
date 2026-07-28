@@ -6,12 +6,12 @@ import { defaultConfig } from './config.js';
 
 test('toChoices 는 options 를 inquirer select choices(name/value)로 변환한다', () => {
   const stepOptions = [
-    { label: 'Default', flag: 'default' },
+    { label: 'Manual', flag: 'manual' },
     { label: '(claude 기본)', flag: null },
   ];
 
   assert.deepEqual(toChoices(stepOptions), [
-    { name: 'Default', value: 'default' },
+    { name: 'Manual', value: 'manual' },
     { name: '(claude 기본)', value: null },
   ]);
 });
@@ -31,8 +31,8 @@ test('promptSelections 는 steps 순서대로 select 를 호출해 결과를 모
     { select: fakeSelect },
   );
 
-  // 각 단계 첫 항목: mode='default', model=null, effort=null
-  assert.deepEqual(result, { mode: 'default', model: null, effort: null });
+  // 각 단계 첫 항목은 모두 '(claude 기본)' = null
+  assert.deepEqual(result, { mode: null, model: null, effort: null });
   assert.equal(calls.length, 3);
   // 현재 저장값이 select 의 default(커서 위치)로 전달됐는지
   assert.deepEqual(calls.map((c) => c.def), ['auto', 'sonnet', 'low']);

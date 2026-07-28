@@ -34,13 +34,13 @@ chmod +x /usr/local/bin/claude
 # 유효 config 주입 — selection 이 options 에 있으면 메뉴 없이 바로 실행된다.
 mkdir -p "$HOME/.config/tiller"
 cat > "$HOME/.config/tiller/config.json" <<'JSON'
-{"version":1,"options":{"mode":[{"label":"Default","flag":"default"}],"model":[{"label":"Opus","flag":"opus"}],"effort":[{"label":"high","flag":"high"}]},"selection":{"mode":"default","model":"opus","effort":"high"}}
+{"version":1,"options":{"mode":[{"label":"Manual","flag":"manual"}],"model":[{"label":"Opus","flag":"opus"}],"effort":[{"label":"high","flag":"high"}]},"selection":{"mode":"manual","model":"opus","effort":"high"}}
 JSON
 
 # 검증 1: 저장값이 플래그로 조립되고 패스스루 인자가 그대로 붙는다.
 OUT="$(tiller "hello")"
 echo "[test1] $OUT"
-echo "$OUT" | grep -q -- '--permission-mode default --model opus --effort high hello' \
+echo "$OUT" | grep -q -- '--permission-mode manual --model opus --effort high hello' \
   && echo "[PASS] 플래그 조립·패스스루" \
   || { echo "[FAIL] 플래그 전달"; exit 1; }
 
@@ -68,6 +68,20 @@ echo "[test3] $OUT"
     && [ -f "$HOME/.config/tiller/config.json" ]; } \
   && echo "[PASS] 레거시 설정 마이그레이션" \
   || { echo "[FAIL] 레거시 설정 마이그레이션"; exit 1; }
+
+# 검증 4: 구 permission mode 플래그(default)가 manual 로 옮겨지고 파일에도 기록된다.
+rm -rf "$HOME/.config/clauncher"
+mkdir -p "$HOME/.config/tiller"
+cat > "$HOME/.config/tiller/config.json" <<'JSON'
+{"version":1,"options":{"mode":[{"label":"Default","flag":"default"}],"model":[{"label":"Opus","flag":"opus"}],"effort":[{"label":"high","flag":"high"}]},"selection":{"mode":"default","model":"opus","effort":"high"}}
+JSON
+OUT="$(tiller "hey")"
+echo "[test4] $OUT"
+{ echo "$OUT" | grep -q -- '--permission-mode manual --model opus --effort high hey' \
+    && grep -q '"manual"' "$HOME/.config/tiller/config.json" \
+    && ! grep -q '"default"' "$HOME/.config/tiller/config.json"; } \
+  && echo "[PASS] permission mode 마이그레이션" \
+  || { echo "[FAIL] permission mode 마이그레이션"; exit 1; }
 
 echo ">>> ALL PASS"
 INNER
