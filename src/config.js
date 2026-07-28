@@ -17,7 +17,8 @@ export function defaultConfig() {
     version: 1,
     options: {
       mode: [
-        { label: 'Default', flag: 'default' },
+        { label: '(claude 기본)', flag: null },
+        { label: 'Manual', flag: 'manual' },
         { label: 'Auto', flag: 'auto' },
         { label: 'Plan', flag: 'plan' },
         { label: 'Accept Edits', flag: 'acceptEdits' },
@@ -41,7 +42,7 @@ export function defaultConfig() {
       ],
     },
     selection: {
-      mode: 'default',
+      mode: 'manual',
       model: 'opus',
       effort: 'high',
     },
@@ -67,6 +68,61 @@ export function resolveLegacyConfigPath({ env = process.env, homedir = os.homedi
   const xdg = env.XDG_CONFIG_HOME;
   const base = xdg ? xdg : path.join(homedir, '.config');
   return path.join(base, 'clauncher', 'config.json');
+}
+
+// 개명 전 claude 의 permission mode 플래그와 그 자리를 대신하는 현재 플래그.
+const LEGACY_MODE_FLAG = 'default';
+const CURRENT_MODE_FLAG = 'manual';
+
+/**
+ * 저장된 설정의 구 permission mode 플래그(`default`)를 `manual` 로 옮긴다.
+ *
+ * claude 2.1.x 의 `--permission-mode` 문서화된 선택지에서 `default` 가 빠지고
+ * `manual` 이 그 자리를 대신한다(`default` 는 아직 통과하지만 안내에서 사라졌다).
+ * 두 값은 같은 동작이므로 값만 갈아끼워 언젠가 제거돼도 깨지지 않게 한다.
+ *
+ * 플래그를 생략하는 `null` 이 아니라 `manual` 로 옮기는 이유: 생략은 claude 쪽
+ * `permissions.defaultMode` 설정을 따르므로, 그 설정을 둔 사용자에게는 동작이
+ * 조용히 달라진다. 마이그레이션은 의도를 추측하지 않고 동작을 보존한다.
+ *
+ * options 와 selection 중 해당하는 값만 바꾸고 나머지 사용자 편집은 건드리지 않는다.
+ * label 은 기본값이던 'Default' 일 때만 교체해 직접 붙인 이름을 보존한다.
+ * 바꿀 것이 없으면 원본을 그대로 반환한다 — 호출부는 참조 동일성으로 판별한다.
+ */
+export function migrateLegacyPermissionMode(config) {
+  const options = config?.options ?? {};
+  const selection = config?.selection ?? {};
+  const modeOptions = options.mode;
+
+  const hasLegacyOption =
+    Array.isArray(modeOptions) && modeOptions.some((opt) => opt?.flag === LEGACY_MODE_FLAG);
+  const hasLegacySelection = selection.mode === LEGACY_MODE_FLAG;
+
+  if (!hasLegacyOption && !hasLegacySelection) return config;
+
+  // 바꿀 쪽만 새로 얹는다 — 원본에 없던 키(options·selection)를 만들어내지 않기 위해서다.
+  const migrated = { ...config };
+
+  if (hasLegacyOption) {
+    migrated.options = {
+      ...options,
+      mode: modeOptions.map((opt) =>
+        opt?.flag === LEGACY_MODE_FLAG
+          ? {
+              ...opt,
+              label: opt.label === 'Default' ? 'Manual' : opt.label,
+              flag: CURRENT_MODE_FLAG,
+            }
+          : opt,
+      ),
+    };
+  }
+
+  if (hasLegacySelection) {
+    migrated.selection = { ...selection, mode: CURRENT_MODE_FLAG };
+  }
+
+  return migrated;
 }
 
 /**
@@ -141,9 +197,11 @@ async function migrateLegacyConfig(configPath, legacyConfigPath) {
   const parsed = parseConfig(raw);
   if (parsed === null) return null;
 
+  // 레거시 설정은 구 permission mode 플래그를 담고 있으므로 옮겨 담아 기록한다.
+  const config = migrateLegacyPermissionMode(parsed);
   await fs.mkdir(path.dirname(configPath), { recursive: true });
-  await fs.writeFile(configPath, serialize(parsed));
-  return parsed;
+  await fs.writeFile(configPath, serialize(config));
+  return config;
 }
 
 /**
@@ -152,6 +210,7 @@ async function migrateLegacyConfig(configPath, legacyConfigPath) {
  *   없으면 최초 실행으로 간주 — 기본 config 와 전체 단계 재선택 신호.
  * - 손상(JSON 파싱 실패): 기본값으로 재생성하고 전체 단계 재선택 신호.
  * - 정상: 파싱한 config 와 validateSelection 결과(누락=전체, 일부 무효=해당 단계).
+ * 어느 경로로 읽었든 구 permission mode 플래그는 migrateLegacyPermissionMode 로 옮겨 담는다.
  * config.options 는 항상 메뉴를 띄울 수 있도록 채워서 반환한다.
  * ENOENT 외 I/O 오류는 호출부가 처리하도록 그대로 던진다.
  */
@@ -180,7 +239,13 @@ export async function load({
     return { config, invalidSteps: [...SELECTION_STEPS] };
   }
 
-  return { config: parsed, invalidSteps: validateSelection(parsed) };
+  // 구 permission mode 플래그가 남아 있으면 옮겨 담고 즉시 기록한다(다음 실행부터는 no-op).
+  const config = migrateLegacyPermissionMode(parsed);
+  if (config !== parsed) {
+    await fs.writeFile(configPath, serialize(config));
+  }
+
+  return { config, invalidSteps: validateSelection(config) };
 }
 
 /**

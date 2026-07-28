@@ -6,10 +6,10 @@ import { defaultConfig } from './config.js';
 
 test('buildArgs 는 selection 을 claude 플래그 배열로 조립한다', () => {
   const { options } = defaultConfig();
-  const selection = { mode: 'default', model: 'opus', effort: 'high' };
+  const selection = { mode: 'manual', model: 'opus', effort: 'high' };
 
   assert.deepEqual(buildArgs(selection, options), [
-    '--permission-mode', 'default',
+    '--permission-mode', 'manual',
     '--model', 'opus',
     '--effort', 'high',
   ]);
@@ -17,9 +17,9 @@ test('buildArgs 는 selection 을 claude 플래그 배열로 조립한다', () =
 
 test('buildArgs 는 flag 가 null 인 선택값(claude 기본)의 플래그를 생략한다', () => {
   const { options } = defaultConfig();
-  const selection = { mode: 'default', model: null, effort: null };
+  const selection = { mode: 'manual', model: null, effort: null };
 
-  assert.deepEqual(buildArgs(selection, options), ['--permission-mode', 'default']);
+  assert.deepEqual(buildArgs(selection, options), ['--permission-mode', 'manual']);
 });
 
 test('buildArgs 는 mode→model→effort 순서로 조립한다', () => {
@@ -35,10 +35,10 @@ test('buildArgs 는 mode→model→effort 순서로 조립한다', () => {
 
 test('buildArgs 는 조립한 플래그 뒤에 passthrough 인자를 그대로 붙인다', () => {
   const { options } = defaultConfig();
-  const selection = { mode: 'default', model: 'opus', effort: 'high' };
+  const selection = { mode: 'manual', model: 'opus', effort: 'high' };
 
   assert.deepEqual(buildArgs(selection, options, ['--resume', '프롬프트']), [
-    '--permission-mode', 'default',
+    '--permission-mode', 'manual',
     '--model', 'opus',
     '--effort', 'high',
     '--resume', '프롬프트',

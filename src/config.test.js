@@ -8,12 +8,29 @@ import {
   defaultConfig,
   load,
   mergeSelection,
+  migrateLegacyPermissionMode,
   parseConfig,
   resolveConfigPath,
   resolveLegacyConfigPath,
   save,
   validateSelection,
 } from './config.js';
+
+// 구 permission mode 플래그(`default`)를 담은 설정 — 마이그레이션 테스트용 고정물.
+function legacyModeConfig() {
+  return {
+    version: 1,
+    options: {
+      mode: [
+        { label: 'Default', flag: 'default' },
+        { label: 'Auto', flag: 'auto' },
+      ],
+      model: [{ label: 'Opus', flag: 'opus' }],
+      effort: [{ label: 'high', flag: 'high' }],
+    },
+    selection: { mode: 'default', model: 'opus', effort: 'high' },
+  };
+}
 
 // 격리된 임시 디렉토리에 config 경로(신규·레거시)를 만들어 fn 에 넘기고, 끝나면 정리한다.
 // 레거시 경로를 함께 주입해 테스트가 실제 ~/.config/clauncher 를 읽는 일을 막는다.
@@ -31,7 +48,7 @@ test('defaultConfig 는 version 1 과 기본 selection 을 반환한다', () => 
 
   assert.equal(config.version, 1);
   assert.deepEqual(config.selection, {
-    mode: 'default',
+    mode: 'manual',
     model: 'opus',
     effort: 'high',
   });
@@ -41,7 +58,8 @@ test('defaultConfig 의 options 는 설계 스키마와 일치한다', () => {
   const { options } = defaultConfig();
 
   assert.deepEqual(options.mode, [
-    { label: 'Default', flag: 'default' },
+    { label: '(claude 기본)', flag: null },
+    { label: 'Manual', flag: 'manual' },
     { label: 'Auto', flag: 'auto' },
     { label: 'Plan', flag: 'plan' },
     { label: 'Accept Edits', flag: 'acceptEdits' },
@@ -73,7 +91,7 @@ test('defaultConfig 는 매번 새로운 객체를 반환한다', () => {
 
   a.selection.mode = 'auto';
 
-  assert.equal(b.selection.mode, 'default');
+  assert.equal(b.selection.mode, 'manual');
 });
 
 test('resolveConfigPath 는 XDG_CONFIG_HOME 가 있으면 그 아래 tiller/config.json 을 쓴다', () => {
@@ -170,16 +188,16 @@ test('mergeSelection 은 원본 config 를 변형하지 않는다', () => {
 
   mergeSelection(config, { mode: 'auto' });
 
-  assert.equal(config.selection.mode, 'default');
+  assert.equal(config.selection.mode, 'manual');
 });
 
 test('mergeSelection 은 일부 단계만 주면 나머지 단계는 기존 값을 유지한다', () => {
-  const config = defaultConfig(); // default/opus/high
+  const config = defaultConfig(); // manual/opus/high
 
   const merged = mergeSelection(config, { model: 'sonnet' });
 
   assert.deepEqual(merged.selection, {
-    mode: 'default',
+    mode: 'manual',
     model: 'sonnet',
     effort: 'high',
   });
@@ -289,6 +307,86 @@ test('load 는 tiller 설정이 있으면 레거시 설정을 무시한다', asy
     const { config } = await load({ configPath, legacyConfigPath });
 
     assert.deepEqual(config.selection, current.selection);
+  });
+});
+
+test('migrateLegacyPermissionMode 는 options·selection 의 default 를 manual 로 옮긴다', () => {
+  const migrated = migrateLegacyPermissionMode(legacyModeConfig());
+
+  assert.deepEqual(migrated.options.mode, [
+    { label: 'Manual', flag: 'manual' },
+    { label: 'Auto', flag: 'auto' },
+  ]);
+  assert.equal(migrated.selection.mode, 'manual');
+});
+
+test('migrateLegacyPermissionMode 는 원본 config 를 변형하지 않는다', () => {
+  const config = legacyModeConfig();
+
+  migrateLegacyPermissionMode(config);
+
+  assert.equal(config.options.mode[0].flag, 'default');
+  assert.equal(config.selection.mode, 'default');
+});
+
+test('migrateLegacyPermissionMode 는 사용자가 붙인 label 은 보존한다', () => {
+  const config = legacyModeConfig();
+  config.options.mode[0].label = '내 기본값';
+
+  const migrated = migrateLegacyPermissionMode(config);
+
+  assert.deepEqual(migrated.options.mode[0], { label: '내 기본값', flag: 'manual' });
+});
+
+test('migrateLegacyPermissionMode 는 다른 단계의 사용자 편집을 건드리지 않는다', () => {
+  const config = legacyModeConfig();
+  config.options.model = [{ label: '내 모델', flag: 'fable' }];
+
+  const migrated = migrateLegacyPermissionMode(config);
+
+  assert.deepEqual(migrated.options.model, [{ label: '내 모델', flag: 'fable' }]);
+  assert.equal(migrated.selection.model, 'opus');
+});
+
+test('migrateLegacyPermissionMode 는 옮길 것이 없으면 원본을 그대로 반환한다', () => {
+  const config = defaultConfig();
+
+  assert.equal(migrateLegacyPermissionMode(config), config);
+});
+
+test('migrateLegacyPermissionMode 는 원본에 없던 키를 만들어내지 않는다', () => {
+  const migrated = migrateLegacyPermissionMode({ selection: { mode: 'default' } });
+
+  assert.equal(migrated.selection.mode, 'manual');
+  assert.ok(!('options' in migrated));
+});
+
+test('load 는 저장된 default 모드를 manual 로 옮기고 파일에 기록한다', async () => {
+  await withTmpConfig(async (configPath, legacyConfigPath) => {
+    await fs.writeFile(configPath, JSON.stringify(legacyModeConfig()));
+
+    const { config, invalidSteps } = await load({ configPath, legacyConfigPath });
+
+    assert.equal(config.selection.mode, 'manual');
+    assert.deepEqual(invalidSteps, []); // 옮긴 값이 options 에 있으므로 재선택 불필요
+
+    // 다음 실행부터는 no-op 이 되도록 파일에도 반영돼야 한다
+    const written = parseConfig(await fs.readFile(configPath, 'utf8'));
+    assert.equal(written.selection.mode, 'manual');
+    assert.equal(written.options.mode[0].flag, 'manual');
+  });
+});
+
+test('load 는 레거시(clauncher) 설정의 default 모드도 manual 로 옮겨 이어 쓴다', async () => {
+  await withTmpConfig(async (configPath, legacyConfigPath) => {
+    await fs.writeFile(legacyConfigPath, JSON.stringify(legacyModeConfig()));
+
+    const { config } = await load({ configPath, legacyConfigPath });
+
+    assert.equal(config.selection.mode, 'manual');
+
+    const written = parseConfig(await fs.readFile(configPath, 'utf8'));
+    assert.equal(written.selection.mode, 'manual');
   });
 });
 
