@@ -100,24 +100,29 @@ export function migrateLegacyPermissionMode(config) {
 
   if (!hasLegacyOption && !hasLegacySelection) return config;
 
-  return {
-    ...config,
-    options: hasLegacyOption
-      ? {
-          ...options,
-          mode: modeOptions.map((opt) =>
-            opt?.flag === LEGACY_MODE_FLAG
-              ? {
-                  ...opt,
-                  label: opt.label === 'Default' ? 'Manual' : opt.label,
-                  flag: CURRENT_MODE_FLAG,
-                }
-              : opt,
-          ),
-        }
-      : options,
-    selection: hasLegacySelection ? { ...selection, mode: CURRENT_MODE_FLAG } : selection,
-  };
+  // 바꿀 쪽만 새로 얹는다 — 원본에 없던 키(options·selection)를 만들어내지 않기 위해서다.
+  const migrated = { ...config };
+
+  if (hasLegacyOption) {
+    migrated.options = {
+      ...options,
+      mode: modeOptions.map((opt) =>
+        opt?.flag === LEGACY_MODE_FLAG
+          ? {
+              ...opt,
+              label: opt.label === 'Default' ? 'Manual' : opt.label,
+              flag: CURRENT_MODE_FLAG,
+            }
+          : opt,
+      ),
+    };
+  }
+
+  if (hasLegacySelection) {
+    migrated.selection = { ...selection, mode: CURRENT_MODE_FLAG };
+  }
+
+  return migrated;
 }
 
 /**

@@ -354,6 +354,13 @@ test('migrateLegacyPermissionMode 는 옮길 것이 없으면 원본을 그대�
   assert.equal(migrateLegacyPermissionMode(config), config);
 });
 
+test('migrateLegacyPermissionMode 는 원본에 없던 키를 만들어내지 않는다', () => {
+  const migrated = migrateLegacyPermissionMode({ selection: { mode: 'default' } });
+
+  assert.equal(migrated.selection.mode, 'manual');
+  assert.ok(!('options' in migrated));
+});
+
 test('load 는 저장된 default 모드를 manual 로 옮기고 파일에 기록한다', async () => {
   await withTmpConfig(async (configPath, legacyConfigPath) => {
     await fs.writeFile(configPath, JSON.stringify(legacyModeConfig()));
