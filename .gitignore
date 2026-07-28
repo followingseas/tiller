@@ -7,3 +7,6 @@ coverage/
 *.tgz
 .env
 .env.*
+
+# 의사결정 기록(docs/intent/) — 작업 맥락과 로컬 환경이 섞여 있어 공개하지 않는다
+docs/
