@@ -1,0 +1,20 @@
+name: test
+# PR 시점에 테스트를 돌린다. npm test 가 릴리스 워크플로(publish.yml)에서만 돌면
+# 깨진 테스트가 배포 시점에야 발견된다. PR 검증이 commitlint 뿐인 공백을 메운다.
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24 # publish.yml 과 동일 버전 — 배포가 도는 환경에서 검증한다
+      - run: npm ci
+      - run: npm test
